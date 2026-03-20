@@ -21,7 +21,7 @@ getByCid.listByOwner = async (address) => {
   return cids.map((cid) => ({ cid, ...store.get(cid) }));
 };
 
-export async function storeMedia(owner, category, file) {
+export async function storeMedia(owner, category, file, { phash } = {}) {
   const cid = `ipfs://${Buffer.from(`${owner}-${category}-${Date.now()}-${file.originalname}`).toString("base64url").slice(0, 46)}`;
   const entry = {
     owner: owner.toLowerCase(),
@@ -32,6 +32,7 @@ export async function storeMedia(owner, category, file) {
       originalName: file.originalname,
       size: file.size,
       base64: file.buffer.toString("base64"),
+      phash,
     },
     createdAt: new Date().toISOString(),
   };

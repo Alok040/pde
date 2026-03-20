@@ -161,7 +161,14 @@ export default function VaultPage() {
         headers: withAuthHeaders(t),
         body: form,
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const status = res.status;
+        const message = data?.error || (status === 409 ? "Duplicate image rejected" : status === 422 ? "NSFW content rejected" : "Upload rejected");
+        const title = status === 409 ? "Duplicate image" : status === 422 ? "NSFW content" : "Upload rejected";
+        toast.push({ kind: "error", title, message });
+        return;
+      }
       if (data.cid) {
         toast.push({
           kind: "success",

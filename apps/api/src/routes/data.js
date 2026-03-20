@@ -5,6 +5,7 @@ import { storeEncrypted, storeMedia, getByCid } from "../services/storage.js";
 import { anonymize } from "../services/anonymize.js";
 import { privacyReport, summarizeInsight } from "../services/ai.js";
 import { canViewCid } from "../services/chain.js";
+import { validateImageAgainstNudeNet, ImageValidationError } from "../services/imageValidation.js";
 
 const router = Router();
 const upload = multer({
@@ -43,13 +44,35 @@ router.post("/upload-media", requireAuth, upload.single("file"), async (req, res
       return res.status(400).json({ error: "Only image/* and video/* are supported" });
     }
 
-    const cid = await storeMedia(walletAddress, category, req.file);
+    // For images, run NudeNet + pHash dedup *before* storing media.
+    const isImage = req.file.mimetype?.startsWith("image/");
+    let phash = undefined;
+    if (isImage) {
+      try {
+        const validation = await validateImageAgainstNudeNet(req.file);
+        if (validation.verdict === "nsfw") {
+          return res.status(422).json({ error: "NSFW content rejected" });
+        }
+        if (validation.verdict === "duplicate") {
+          return res.status(409).json({ error: "Duplicate image rejected" });
+        }
+        if (validation.verdict === "safe") phash = validation.phash;
+      } catch (e) {
+        if (e instanceof ImageValidationError) {
+          return res.status(e.statusCode || 400).json({ error: e.message });
+        }
+        return res.status(502).json({ error: "Image validation service error" });
+      }
+    }
+
+    const cid = await storeMedia(walletAddress, category, req.file, { phash });
     res.json({
       cid,
       category,
       mime: req.file.mimetype,
       originalName: req.file.originalname,
       size: req.file.size,
+      phash,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -76,6 +99,7 @@ router.get("/media/:cid", requireAuth, async (req, res) => {
       originalName: record.data.originalName,
       size: record.data.size,
       base64: record.data.base64,
+      phash: record.data.phash,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
